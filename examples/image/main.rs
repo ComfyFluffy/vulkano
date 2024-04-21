@@ -248,6 +248,55 @@ fn main() -> Result<(), impl Error> {
             .unwrap();
 
         let image = Image::new(
+            memory_allocator.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8B8A8_SRGB,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+
+        uploads
+            .copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(
+                upload_buffer,
+                image.clone(),
+            ))
+            .unwrap();
+
+        ImageView::new_default(image).unwrap()
+    };
+
+    let texture1 = {
+        let png_bytes = include_bytes!("tiled_pattern_image.png").as_slice();
+        let decoder = png::Decoder::new(png_bytes);
+        let mut reader = decoder.read_info().unwrap();
+        let info = reader.info();
+        let extent = [info.width, info.height, 1];
+
+        let upload_buffer = Buffer::new_slice(
+            memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            (info.width * info.height * 4) as DeviceSize,
+        )
+        .unwrap();
+
+        reader
+            .next_frame(&mut upload_buffer.write().unwrap())
+            .unwrap();
+
+        let image = Image::new(
             memory_allocator,
             ImageCreateInfo {
                 image_type: ImageType::Dim2d,
@@ -338,7 +387,7 @@ fn main() -> Result<(), impl Error> {
         layout.clone(),
         [
             WriteDescriptorSet::sampler(0, sampler),
-            WriteDescriptorSet::image_view(1, texture),
+            WriteDescriptorSet::image_view_array(1, 0, [texture, texture1]),
         ],
         [],
     )
@@ -547,10 +596,10 @@ mod fs {
             layout(location = 0) out vec4 f_color;
 
             layout(set = 0, binding = 0) uniform sampler s;
-            layout(set = 0, binding = 1) uniform texture2D tex;
+            layout(set = 0, binding = 1) uniform texture2D tex[2];
 
             void main() {
-                f_color = texture(sampler2D(tex, s), tex_coords);
+                f_color = texture(sampler2D(tex[1], s), tex_coords);
             }
         ",
     }
